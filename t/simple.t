@@ -12,6 +12,7 @@ use Time::HiRes qw(
 );
 
 use Action::Retry;
+use Try::Tiny::Retry ':all';
 
 use lib::abs qw(
     ../lib
@@ -170,6 +171,39 @@ sub run_action_retry {
 
 }
 
+sub run_try_tiny_retry {
+    my ($class) = @_;
+
+    my $t0 = [gettimeofday];
+
+    my $output = capture_merged {
+
+        my $count = 0;
+
+        my $obj = $class->new();
+
+        retry {
+            $obj->do_work();
+            die "ick" if ++$count < 3;
+        }
+        delay {
+            sleep $sleep_time_seconds;
+        }
+        retry_if {
+            ref($_) eq 'TemporaryError'
+        };
+
+    };
+
+    my $elapsed = tv_interval( $t0, [gettimeofday] );
+
+    return {
+        output => $output,
+        elapsed => $elapsed,
+    };
+
+}
+
 sub compare {
     my ($got, $expected, $message) = @_;
 
@@ -218,6 +252,30 @@ sub main {
         'Action::Retry - TempErrorAndFail',
     );
 
+    # Try::Tiny::Retry
+    compare(
+        run_try_tiny_retry('Success'),
+        $etalon_success_data,
+        'Try::Tiny::Retry - Success',
+    );
+
+    compare(
+        run_try_tiny_retry('Fail'),
+        $etalon_fail_data,
+        'Try::Tiny::Retry - Fail',
+    );
+
+    compare(
+        run_try_tiny_retry('TwoErrorsAndSuccess'),
+        $etalon_two_error_sand_success_data,
+        'Try::Tiny::Retry - TwoErrorsAndSuccess',
+    );
+
+    compare(
+        run_try_tiny_retry('TempErrorAndFail'),
+        $etalon_temp_error_and_fail_data,
+        'Try::Tiny::Retry - TempErrorAndFail',
+    );
 
     done_testing();
 }
